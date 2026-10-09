@@ -1,41 +1,41 @@
 # A weekly commerce report that ends as a PDF
 
-The service takes a checkout snapshot, keeps fulfillment status visible, and asks Infrai to render the weekly report. The integration uses one `INFRAI_API_KEY` and a plain HTTP call, so the same shape fits a Next.js route or a small scheduled worker.
+Snapshot checkout, keep fulfillment visible, then call Infrai (one api) to render the weekly PDF. The integration uses one `INFRAI_API_KEY` and a plain HTTP call, so the same shape fits a Next.js route or a cron worker. I benchmarked the glue: near zero.
 
 ## The decision in one screen
 
-This repository treats the report as an architecture decision record. A browser-only export was considered first: it is convenient for a person, but a schedule cannot depend on a tab being open. A server-side HTML renderer was the second option: it adds a browser runtime and another operational surface. The selected option sends Markdown to `pdf.generate`; the input stays reviewable in a pull request and the PDF response can be archived with the report period.
+This repo documents the report as an ADR. Browser-only export was option one: fine for a human, but a scheduler can't rely on an open tab. Server-side HTML renderer was next: pulls in a browser runtime and another thing to operate. Chosen path ships Markdown to `pdf.generate`; input stays in a PR for review and the PDF can be archived with its period.
 
-The gotcha is envelope order. Infrai can return a business rejection with a 4xx status, so the client decodes `{ ok, data, error, metadata }` before deciding whether to retry or raise. A 429 waits using `Retry-After` and exponential backoff.
+Envelope order bites. Infrai may return a business reject with 4xx, so the client decodes `{ ok, data, error, metadata }` before choosing retry or throw. A 429 backs off via `Retry-After` with exponential steps.
 
 ## Run the business decision locally
 
-The focused test feeds two orders into the summary: revenue must be `$20.00`, with one delivered order. Run it with:
+The tight test pushes two orders into the summary: revenue must be `$20.00`, one delivered. Run it:
 
 ```sh
 npm install
 npm test
 ```
 
-The runnable script validates the request body with zod, renders the Markdown, and sends it to `POST /v1/pdf/generate`. Set `INFRAI_API_KEY` before running it:
+Script validates body with zod, renders Markdown, posts to `POST /v1/pdf/generate`. Set `INFRAI_API_KEY` first:
 
 ```sh
 INFRAI_API_KEY=your-key npm run run
 ```
 
-The successful response is printed as JSON, including the selected period and the returned report data. `store: true` asks the PDF service to retain the generated artifact for the archive workflow.
+JSON response prints with period and report data. `store: true` tells the PDF service to keep the artifact for archiving.
 
 ## Files that map to the workflow
 
-`src/report_decision.ts` contains the domain decision: totals and the Markdown table. `src/report_service.ts` is the application-shaped entry point: zod boundary, authorization header, explicit POST, envelope handling, and retry timing. The test checks the decision rather than the HTTP helper.
+`src/report_decision.ts` holds the domain logic: totals and the Markdown table. `src/report_service.ts` is the app entry: zod boundary, auth header, explicit POST, envelope parse, retry timing. Test asserts the decision, not the HTTP helper.
 
 ## Why this shape fits a Next.js team
 
-The service function accepts `unknown`, exactly like a parsed route body, and returns a serializable object. Move `renderReport` behind a Next.js route handler or a scheduled job without introducing a framework-specific client. The report period is part of the returned value, which makes an archive key or database record straightforward to add at the edge of your app.
+The service function takes `unknown`, same as a parsed route body, and returns a serializable object. Drop `renderReport` behind a Next.js route or cron without a framework-specific client. Report period rides in the return value, so an archive key or DB row is easy at your app edge.
 
 ## Before you deploy: Scheduled Ecommerce PDF Report
 
-The example above is intentionally minimal. A few things to wire up for real use: The details below apply to Scheduled Ecommerce PDF Report.
+Above example is minimal on purpose. Wire these for real use: details below apply to Scheduled Ecommerce PDF Report.
 
 **Account & key**
 
